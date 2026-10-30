@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ebbinghaus Medical Study Tracker & RPG HUD</title>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-color: #0f172a;
+            --primary: #ca8a04;
+            --primary-hover: #a16207;
+            --border-color: #e2e8f0;
+            --muted-text: #64748b;
+        }
+
+        .dark {
+            --bg-color: #090d16;
+            --card-bg: #1e293b;
+            --text-color: #f8fafc;
+            --primary: #ca8a04;
+            --primary-hover: #a16207;
+            --border-color: #334155;
+            --muted-text: #94a3b8;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-color); min-height: 100vh; display: flex; flex-direction: column; }
+
+        header { background-color: var(--card-bg); border-bottom: 1px solid var(--border-color); padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; sticky: top; }
+        .logo { font-weight: bold; font-size: 1.1rem; }
+        .subtitle { font-size: 0.75rem; color: var(--muted-text); }
+
+        nav { display: flex; gap: 0.5rem; background: var(--bg-color); padding: 0.25rem; border-radius: 0.75rem; border: 1px solid var(--border-color); }
+        nav button { border: none; background: transparent; color: var(--text-color); padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.875rem; font-weight: 500; }
+        nav button.active { background: var(--primary); color: white; }
+
+        .btn { background: var(--primary); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 0.5rem; cursor: pointer; font-weight: 600; font-size: 0.875rem; }
+        .btn:hover { background: var(--primary-hover); }
+        .btn-secondary { background: transparent; border: 1px solid var(--border-color); color: var(--text-color); }
+
+        main { flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 1.5rem; }
+        .banner { background: linear-gradient(135deg, #ca8a04, #eab308); color: white; padding: 1.5rem; border-radius: 1rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+        .card { background: var(--card-bg); border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 1rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; }
+        .tag { font-size: 0.75rem; font-weight: bold; color: var(--primary); background: rgba(234, 179, 8, 0.14); padding: 0.2rem 0.5rem; border-radius: 0.25rem; width: fit-content; }
+
+        /* Quest Log HUD Styling */
+        #questLogHUD {
+            position: fixed;
+            top: 88px;
+            right: 16px;
+            width: 250px;
+            background: rgba(15, 23, 42, 0.48);
+            color: #f8fafc;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            border-radius: 0.85rem;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.22);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 998;
+            overflow: hidden;
+        }
+        .hud-header { background: rgba(30, 41, 59, 0.48); padding: 0.55rem 0.75rem; display: flex; justify-content: space-between; align-items: center; font-weight: bold; border-bottom: 1px solid rgba(148, 163, 184, 0.18); font-size: 0.85rem; }
+        .hud-body { padding: 0.6rem; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.45rem; }
+        
+        .quest-list-heading { display: flex; justify-content: space-between; align-items: center; padding: 0.1rem 0.15rem 0.25rem; font-size: 0.75rem; font-weight: bold; }
+        .quest-count { color: #fde68a; font-size: 0.7rem; }
+        .quest-item { background: rgba(30, 41, 59, 0.34); border: 1px solid rgba(148, 163, 184, 0.16); padding: 0.45rem; border-radius: 0.45rem; display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; font-size: 0.72rem; }
+        .quest-item.completed { background: rgba(15, 23, 42, 0.2); opacity: 0.68; }
+        .quest-item.completed .quest-task-title { text-decoration: line-through; }
+        .quest-completion-toggle { width: 1rem; height: 1rem; margin: 0; accent-color: var(--primary); cursor: pointer; flex-shrink: 0; }
+        .quest-task-title { font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+        .quest-task-detail { margin-top: 0.15rem; color: #cbd5e1; font-size: 0.65rem; }
+        .quest-btn { background: rgba(16, 185, 129, 0.82); color: white; border: 1px solid rgba(167, 243, 208, 0.25); padding: 0.25rem 0.45rem; border-radius: 0.3rem; cursor: pointer; font-size: 0.68rem; font-weight: bold; flex-shrink: 0; }
+        .quest-checklist-form { display: flex; gap: 0.35rem; }
+        .quest-checklist-input { min-width: 0; flex: 1; padding: 0.35rem 0.45rem; border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 0.35rem; background: rgba(15, 23, 42, 0.45); color: #f8fafc; font-size: 0.7rem; }
+        .quest-checklist-input::placeholder { color: #cbd5e1; }
+        .quest-checklist-add { padding: 0.25rem 0.45rem; border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 0.35rem; background: rgba(30, 41, 59, 0.65); color: #f8fafc; cursor: pointer; font-size: 0.7rem; }
+        .quest-checklist-remove { padding: 0 0.2rem; border: 0; background: none; color: #cbd5e1; cursor: pointer; font-size: 0.9rem; flex-shrink: 0; }
+        .quest-section { display: flex; flex-direction: column; gap: 0.4rem; }
+
+        .minimized-btn { position: fixed; top: 88px; right: 16px; z-index: 998; background: rgba(202, 138, 4, 0.88); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 0.75rem; border-radius: 0.75rem; font-size: 0.8rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2); backdrop-filter: blur(8px); }
+
+        /* Modal Base */
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: var(--card-bg); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 1rem; width: 100%; max-width: 450px; display: flex; flex-direction: column; gap: 1rem; }
+        .hidden { display: none !important; }
+        input, select { width: 100%; padding: 0.6rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color); }
+
+        .calendar-weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.5rem; }
+        .calendar-weekdays { margin-bottom: 0.5rem; color: var(--muted-text); font-size: 0.75rem; font-weight: bold; text-align: center; }
+        .calendar-day { min-width: 0; min-height: 105px; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--card-bg); color: var(--text-color); text-align: left; cursor: pointer; }
+        .calendar-day:hover, .calendar-day.selected { border-color: var(--primary); }
+        .calendar-day.selected { box-shadow: inset 0 0 0 1px var(--primary); }
+        .calendar-day.other-month { opacity: 0.3; }
+        .calendar-day.today .calendar-day-number { color: var(--primary); font-weight: bold; }
+        .calendar-day-number { display: block; margin-bottom: 0.35rem; }
+        .calendar-entry { display: block; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; margin-top: 0.2rem; padding: 0.15rem 0.25rem; border-radius: 0.25rem; font-size: 0.65rem; text-overflow: ellipsis; white-space: nowrap; }
+        .calendar-review { background: rgba(234, 179, 8, 0.16); color: var(--primary); }
+        .calendar-event { background: rgba(16, 185, 129, 0.14); color: #059669; }
+        .calendar-more { display: block; margin-top: 0.15rem; color: var(--muted-text); font-size: 0.65rem; }
+        .calendar-agenda-item { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color); }
+        .calendar-agenda-item:last-child { border-bottom: 0; }
+        @media (max-width: 640px) {
+            main { padding: 1rem; }
+            .calendar-weekdays, .calendar-grid { gap: 0.2rem; }
+            .calendar-day { min-height: 72px; padding: 0.3rem; }
+            .calendar-entry { font-size: 0.55rem; }
+            #calendarToolbar { flex-wrap: wrap; }
+            #questLogHUD { top: 76px; right: 10px; width: min(230px, calc(100vw - 20px)); }
+            .minimized-btn { top: 76px; right: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header>
+        <div>
+            <div class="logo">🧠 Spaced Repetition Tracker</div>
+            <!-- <div class="subtitle">Ebbinghaus Automated System</div> -->
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <nav>
+                <button id="nav-today" class="active">Today's Queue</button>
+                <button id="nav-calendar">Calendar</button>
+                <button id="nav-all">Master Database</button>
+            </nav>
+            <button id="btnToggleNotif" class="btn btn-secondary">🔔 Alerts</button>
+            <button id="btnToggleTheme" class="btn btn-secondary">🌓 Mode</button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main>
+        <!-- TAB 1: TODAY QUEUE -->
+        <section id="tab-today">
+            <div class="banner">
+                <div>
+                    <h2>Today's Review Queue</h2>
+                    <p style="font-size: 0.85rem; opacity: 0.9;">Complete a review to schedule the next interval.</p>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.75rem; opacity: 0.8;">DUE TODAY</div>
+                    <div id="statDueCount" style="font-size: 2rem; font-weight: bold;">0</div>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                <button id="btnAddUnit" class="btn">+ Add New Study Unit</button>
+                <button id="btnResetData" class="btn btn-secondary">Reset Data</button>
+            </div>
+
+            <div id="todayTaskList" class="grid">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- TAB 2: CALENDAR VIEW -->
+        <section id="tab-calendar" class="hidden">
+            <div id="calendarToolbar" class="card" style="margin-bottom: 1rem; flex-direction: row; align-items: center; justify-content: space-between;">
+                <h3 id="calMonthYearTitle">Month Year</h3>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="btnPrevMonth" class="btn btn-secondary">←</button>
+                    <button id="btnCalendarToday" class="btn btn-secondary">Today</button>
+                    <button id="btnNextMonth" class="btn btn-secondary">→</button>
+                </div>
+            </div>
+            <div class="card" style="margin-bottom: 1rem;">
+                <div class="calendar-weekdays" aria-hidden="true">
+                    <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                </div>
+                <div id="calendarGrid" class="calendar-grid" aria-label="Calendar month view"></div>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; color: var(--muted-text); font-size: 0.75rem; margin-top: 0.75rem;">
+                    <span><span class="calendar-entry calendar-review" style="display: inline-block;">Review</span> Spaced-repetition review</span>
+                    <span><span class="calendar-entry calendar-event" style="display: inline-block;">Event</span> Personal event</span>
+                </div>
+            </div>
+            <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+                <div class="card">
+                    <div>
+                        <h3 id="calendarSelectedDateTitle">Selected day</h3>
+                        <div id="calendarAgenda" style="margin-top: 0.5rem;"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Add an event</h3>
+                    <form id="calendarEventForm" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <div>
+                            <label for="calendarEventTitle" style="font-size: 0.75rem;">Event name</label>
+                            <input type="text" id="calendarEventTitle" required maxlength="100" placeholder="e.g. Study group">
+                        </div>
+                        <div>
+                            <label for="calendarEventDate" style="font-size: 0.75rem;">Date</label>
+                            <input type="date" id="calendarEventDate" required>
+                        </div>
+                        <div>
+                            <label for="calendarEventTime" style="font-size: 0.75rem;">Time (optional)</label>
+                            <input type="time" id="calendarEventTime">
+                        </div>
+                        <button type="submit" class="btn">Add event</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: MASTER DATABASE -->
+        <section id="tab-all" class="hidden">
+            <div class="card">
+                <h3>Master Unit Database</h3>
+                <input type="text" id="searchInput" placeholder="Search topic or system...">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border-color);">
+                            <th style="padding: 0.5rem;">Unit Name</th>
+                            <th style="padding: 0.5rem;">System</th>
+                            <th style="padding: 0.5rem;">Stage</th>
+                            <th style="padding: 0.5rem;">Next Date</th>
+                            <th style="padding: 0.5rem; text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="masterTableBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- FLOATING STUDY TASK LIST -->
+    <div id="questLogHUD">
+        <div id="questHUDHeader" class="hud-header">
+            <span>📜 Quest Log</span>
+            <button id="btnMinHUD" style="background:none; border:none; color:white; cursor:pointer;">━</button>
+        </div>
+        <div class="hud-body">
+            <div class="quest-list-heading">
+                <span>Today's checklist</span>
+                <span id="hudChecklistCount" class="quest-count">0</span>
+            </div>
+            <form id="checklistForm" class="quest-checklist-form">
+                <input id="checklistInput" class="quest-checklist-input" type="text" maxlength="100" placeholder="Add a task..." aria-label="New checklist task" required>
+                <button class="quest-checklist-add" type="submit">Add</button>
+            </form>
+            <div id="hudChecklist" style="display: flex; flex-direction: column; gap: 0.35rem;"></div>
+            <div class="quest-list-heading">
+                <span>Due today</span>
+                <span id="hudTaskCount" class="quest-count">0</span>
+            </div>
+            <div id="hudMainList" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+            <div class="quest-section">
+                <div class="quest-list-heading">
+                    <span>Completed</span>
+                    <span id="hudCompletedCount" class="quest-count">0</span>
+                </div>
+                <div id="hudCompletedList" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <button id="btnExpandHUD" class="minimized-btn hidden">📜 Quest Log</button>
+
+    <!-- MODAL: ADD / EDIT UNIT -->
+    <div id="unitModal" class="modal hidden">
+        <div class="modal-content">
+            <h3 id="modalTitle">Add Study Unit</h3>
+            <form id="unitForm" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <input type="hidden" id="unitId">
+                <div>
+                    <label style="font-size: 0.75rem;">Topic Name</label>
+                    <input type="text" id="formTitle" required placeholder="e.g. Cardiovascular Pathology">
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem;">System</label>
+                    <select id="formSystem">
+                        <option value="Pathology">Pathology</option>
+                        <option value="Pharmacology">Pharmacology</option>
+                        <option value="Physiology">Physiology</option>
+                        <option value="Anatomy">Anatomy</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem;">Last Studied Date</label>
+                    <input type="date" id="formDate" required>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+                    <button type="button" id="btnCancelModal" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn">Save Unit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: NOTIFICATIONS -->
+    <div id="notifModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>🔔 Push Notifications</h3>
+            <p style="font-size: 0.85rem; color: var(--muted-text);">Enable system push notifications for study reminders.</p>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="notifStatusText" style="font-size: 0.85rem;">Status: Pending</span>
+                <button id="btnGrantNotif" class="btn">Grant Permission</button>
+            </div>
+            <button id="btnTestNotif" class="btn btn-secondary" style="margin-top: 0.5rem;">Send Test Alert</button>
+            <button id="btnCloseNotifModal" class="btn btn-secondary" style="margin-top: 0.5rem;">Close</button>
+        </div>
+    </div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        const INTERVALS = [1, 2, 4, 7, 15, 30, 90, 180];
+        const DEFAULT_UNITS = [
+            { id: 1, title: 'USMLE Path: Cardiovascular Pathology', system: 'Pathology', stage: 0, lastDate: getDateOffset(0) },
+            { id: 2, title: 'USMLE Pharm: Autonomic Nervous System', system: 'Pharmacology', stage: 1, lastDate: getDateOffset(-1) },
+            { id: 3, title: 'USMLE Physio: Renal Acid-Base Balance', system: 'Physiology', stage: 2, lastDate: getDateOffset(-3) }
+        ]; 
+
+        let units = JSON.parse(localStorage.getItem('ebbinghaus_units')) || DEFAULT_UNITS.map(unit => ({ ...unit }));
+        let calendarEvents = JSON.parse(localStorage.getItem('ebbinghaus_calendar_events')) || [];
+        let dailyCompletedReviews = JSON.parse(localStorage.getItem('ebbinghaus_completed_reviews')) || { date: getTodayDateString(), reviews: [] };
+        let dailyChecklist = JSON.parse(localStorage.getItem('ebbinghaus_daily_checklist')) || { date: getTodayDateString(), items: [] };
+        let calendarYear = new Date().getFullYear();
+        let calendarMonth = new Date().getMonth();
+        let calendarSelectedDate = getTodayDateString();
+
+        function getNextReviewDate(lastDateStr, stage) {
+            const [year, month, day] = lastDateStr.split('-').map(Number);
+            const d = new Date(year, month - 1, day);
+            const addDays = INTERVALS[Math.min(stage, INTERVALS.length - 1)];
+            d.setDate(d.getDate() + addDays);
+            return d;
+        }
+
+        function formatDate(d) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        function getTodayDateString() { return formatDate(new Date()); }
+
+        function getDateOffset(days) {
+            const date = new Date();
+            date.setDate(date.getDate() + days);
+            return formatDate(date);
+        }
+
+        function shiftDateByDays(dateStr, days) {
+            const [year, month, day] = dateStr.split('-').map(Number);
+            const date = new Date(year, month - 1, day);
+            date.setDate(date.getDate() + days);
+            return formatDate(date);
+        }
+
+        function changeCalendarMonth(offset) {
+            const selectedDay = Number(calendarSelectedDate.slice(-2));
+            const nextMonth = new Date(calendarYear, calendarMonth + offset, 1);
+            const lastDayOfMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
+            calendarYear = nextMonth.getFullYear();
+            calendarMonth = nextMonth.getMonth();
+            calendarSelectedDate = formatDate(new Date(calendarYear, calendarMonth, Math.min(selectedDay, lastDayOfMonth)));
+            renderCalendar();
+        }
+
+        function saveData() {
+            localStorage.setItem('ebbinghaus_units', JSON.stringify(units));
+            localStorage.setItem('ebbinghaus_calendar_events', JSON.stringify(calendarEvents));
+            localStorage.setItem('ebbinghaus_completed_reviews', JSON.stringify(dailyCompletedReviews));
+            localStorage.setItem('ebbinghaus_daily_checklist', JSON.stringify(dailyChecklist));
+        }
+
+        function renderAll() {
+            renderTodayQueue();
+            renderMasterTable();
+            renderCalendar();
+            renderQuestHUD();
+        }
+
+        function switchTab(tabName) {
+            ['today', 'calendar', 'all'].forEach(t => {
+                document.getElementById(`tab-${t}`).classList.add('hidden');
+                document.getElementById(`nav-${t}`).classList.remove('active');
+            });
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            document.getElementById(`nav-${tabName}`).classList.add('active');
+        }
+
+        function renderTodayQueue() {
+            const container = document.getElementById('todayTaskList');
+            container.innerHTML = '';
+            const todayStr = getTodayDateString();
+            let dueCount = 0;
+
+            units.forEach(unit => {
+                if (unit.pausedAt) return;
+                const nextDateStr = formatDate(getNextReviewDate(unit.lastDate, unit.stage));
+                if (nextDateStr <= todayStr) {
+                    dueCount++;
+                    const card = document.createElement('div');
+                    card.className = "card";
+                    card.innerHTML = `
+                        <div>
+                            <span class="tag">${unit.system}</span>
+                            <h4 style="margin-top: 0.5rem;">${unit.title}</h4>
+                            <div style="font-size: 0.75rem; color: var(--muted-text); margin-top: 0.25rem;">Stage ${unit.stage + 1} • Next: ${nextDateStr}</div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="window.completeUnit(${unit.id})" class="btn" style="flex:1;">Complete review</button>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                }
+            });
+
+            if (dueCount === 0) {
+                container.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: var(--muted-text);">🎉 All reviews completed for today!</div>`;
+            }
+            document.getElementById('statDueCount').innerText = dueCount;
+        }
+
+        window.completeUnit = function(id) {
+            const unit = units.find(u => u.id === id);
+            if (unit && !unit.pausedAt) {
+                const todayStr = getTodayDateString();
+                if (dailyCompletedReviews.date !== todayStr) {
+                    dailyCompletedReviews = { date: todayStr, reviews: [] };
+                }
+                if (!dailyCompletedReviews.reviews.some(review => String(review.id) === String(unit.id))) {
+                    dailyCompletedReviews.reviews.push({
+                        id: unit.id,
+                        title: unit.title,
+                        system: unit.system,
+                        stage: unit.stage + 1,
+                        previousStage: unit.stage,
+                        previousLastDate: unit.lastDate
+                    });
+                }
+                unit.lastDate = getTodayDateString();
+                unit.stage = Math.min(unit.stage + 1, INTERVALS.length - 1);
+                saveData();
+                renderAll();
+            }
+        };
+
+        window.undoCompleteUnit = function(id) {
+            const reviewIndex = dailyCompletedReviews.reviews.findIndex(review => String(review.id) === String(id));
+            if (reviewIndex === -1) return;
+
+            const [review] = dailyCompletedReviews.reviews.splice(reviewIndex, 1);
+            const unit = units.find(item => String(item.id) === String(id));
+            if (unit) {
+                const previousStage = Number.isInteger(review.previousStage)
+                    ? review.previousStage
+                    : Math.max(0, review.stage - 1);
+                unit.stage = previousStage;
+                if (review.previousLastDate) {
+                    unit.lastDate = review.previousLastDate;
+                } else {
+                    const dueDate = new Date(`${getTodayDateString()}T00:00:00`);
+                    dueDate.setDate(dueDate.getDate() - INTERVALS[previousStage]);
+                    unit.lastDate = formatDate(dueDate);
+                }
+            }
+
+            saveData();
+            renderAll();
+        };
+
+        function renderQuestHUD() {
+            const todayStr = getTodayDateString();
+            if (dailyCompletedReviews.date !== todayStr) {
+                dailyCompletedReviews = { date: todayStr, reviews: [] };
+                saveData();
+            }
+            if (dailyChecklist.date !== todayStr) {
+                dailyChecklist = { date: todayStr, items: [] };
+                saveData();
+            }
+            const completedIds = new Set(dailyCompletedReviews.reviews.map(review => String(review.id)));
+            const checklist = document.getElementById('hudChecklist');
+            const mainList = document.getElementById('hudMainList');
+            const completedList = document.getElementById('hudCompletedList');
+            checklist.innerHTML = '';
+            mainList.innerHTML = '';
+            completedList.innerHTML = '';
+
+            dailyChecklist.items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = `quest-item${item.completed ? ' completed' : ''}`;
+                const title = document.createElement('div');
+                title.className = 'quest-task-title';
+                title.textContent = item.title;
+                const toggle = document.createElement('input');
+                toggle.type = 'checkbox';
+                toggle.className = 'quest-completion-toggle';
+                toggle.checked = item.completed;
+                toggle.setAttribute('aria-label', `${item.completed ? 'Mark incomplete' : 'Complete'} checklist item ${item.title}`);
+                toggle.onchange = () => {
+                    item.completed = toggle.checked;
+                    saveData();
+                    renderQuestHUD();
+                };
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'quest-checklist-remove';
+                remove.textContent = '×';
+                remove.setAttribute('aria-label', `Remove checklist item ${item.title}`);
+                remove.onclick = () => {
+                    dailyChecklist.items = dailyChecklist.items.filter(checklistItem => checklistItem.id !== item.id);
+                    saveData();
+                    renderQuestHUD();
+                };
+                row.append(title, toggle, remove);
+                checklist.appendChild(row);
+            });
+            document.getElementById('hudChecklistCount').innerText =
+                String(dailyChecklist.items.filter(item => !item.completed).length);
+            if (dailyChecklist.items.length === 0) {
+                checklist.innerHTML = '<div style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding:0.35rem 0;">No checklist items yet.</div>';
+            }
+
+            let count = 0;
+
+            units.forEach(unit => {
+                if (unit.pausedAt) return;
+                const nextDateStr = formatDate(getNextReviewDate(unit.lastDate, unit.stage));
+                if (nextDateStr <= todayStr && !completedIds.has(String(unit.id))) {
+                    count++;
+                    const item = document.createElement('div');
+                    item.className = "quest-item";
+                    item.innerHTML = `
+                        <div>
+                            <div class="quest-task-title">${unit.title}</div>
+                            <div class="quest-task-detail">${unit.system} · Stage ${unit.stage + 1}</div>
+                        </div>
+                        <button class="quest-btn" aria-label="Complete ${unit.title}" onclick="window.completeUnit(${unit.id})">Complete</button>
+                    `;
+                    mainList.appendChild(item);
+                }
+            });
+
+            dailyCompletedReviews.reviews.forEach(review => {
+                const item = document.createElement('div');
+                item.className = 'quest-item completed';
+                const description = document.createElement('div');
+                const title = document.createElement('div');
+                title.className = 'quest-task-title';
+                title.textContent = review.title;
+                const detail = document.createElement('div');
+                detail.className = 'quest-task-detail';
+                detail.textContent = `${review.system} · Stage ${review.stage}`;
+                description.append(title, detail);
+                const toggle = document.createElement('input');
+                toggle.type = 'checkbox';
+                toggle.className = 'quest-completion-toggle';
+                toggle.checked = true;
+                toggle.setAttribute('aria-label', `Uncheck completed task ${review.title}`);
+                toggle.title = 'Uncheck to return this task to Due today';
+                toggle.onchange = () => {
+                    if (!toggle.checked) window.undoCompleteUnit(review.id);
+                };
+                item.append(description, toggle);
+                completedList.appendChild(item);
+            });
+
+            document.getElementById('hudTaskCount').innerText = count;
+            document.getElementById('hudCompletedCount').innerText = dailyCompletedReviews.reviews.length;
+            if (count === 0) mainList.innerHTML = `<div style="font-size:0.75rem; color:#cbd5e1; text-align:center; padding:0.5rem 0;">All caught up!</div>`;
+            if (dailyCompletedReviews.reviews.length === 0) {
+                completedList.innerHTML = '<div style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding:0.35rem 0;">No completed tasks yet.</div>';
+            }
+        }
+
+        function renderMasterTable() {
+            const tbody = document.getElementById('masterTableBody');
+            tbody.innerHTML = '';
+            const search = document.getElementById('searchInput').value.toLowerCase();
+
+            units.forEach(unit => {
+                if (unit.title.toLowerCase().includes(search) || unit.system.toLowerCase().includes(search)) {
+                    const isPaused = Boolean(unit.pausedAt);
+                    const nextDate = isPaused ? 'Paused' : formatDate(getNextReviewDate(unit.lastDate, unit.stage));
+                    const tr = document.createElement('tr');
+                    tr.style.borderBottom = "1px solid var(--border-color)";
+                    tr.innerHTML = `
+                        <td style="padding:0.5rem; font-weight:500;">${unit.title}</td>
+                        <td style="padding:0.5rem;">${unit.system}</td>
+                        <td style="padding:0.5rem;">Stage ${unit.stage + 1}</td>
+                        <td style="padding:0.5rem; color:var(--primary); font-weight:bold;">${nextDate}</td>
+                        <td style="padding:0.5rem; text-align:right;">
+                            <button onclick="window.toggleUnitSchedule(${unit.id})" style="background:none; border:none; color:var(--primary); cursor:pointer; margin-right:0.5rem;" aria-label="${isPaused ? 'Resume' : 'Pause'} schedule for ${unit.title}">${isPaused ? 'Resume' : 'Pause'}</button>
+                            <button onclick="window.editUnit(${unit.id})" style="background:none; border:none; color:var(--primary); cursor:pointer; margin-right:0.5rem;">Edit</button>
+                            <button onclick="window.deleteUnit(${unit.id})" style="background:none; border:none; color:#ef4444; cursor:pointer;">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            });
+        }
+
+        window.toggleUnitSchedule = function(id) {
+            const unit = units.find(item => item.id === id);
+            if (!unit) return;
+
+            if (unit.pausedAt) {
+                const [pausedYear, pausedMonth, pausedDay] = unit.pausedAt.split('-').map(Number);
+                const [todayYear, todayMonth, todayDay] = getTodayDateString().split('-').map(Number);
+                const pausedDate = new Date(pausedYear, pausedMonth - 1, pausedDay);
+                const today = new Date(todayYear, todayMonth - 1, todayDay);
+                const pausedDays = Math.max(0, Math.round((today - pausedDate) / 86400000));
+                unit.lastDate = shiftDateByDays(unit.lastDate, pausedDays);
+                delete unit.pausedAt;
+            } else {
+                unit.pausedAt = getTodayDateString();
+            }
+
+            saveData();
+            renderAll();
+        };
+
+        window.editUnit = function(id) {
+            const unit = units.find(item => item.id === id);
+            if (!unit) return;
+
+            document.getElementById('unitId').value = unit.id;
+            document.getElementById('formTitle').value = unit.title;
+            document.getElementById('formSystem').value = unit.system;
+            document.getElementById('formDate').value = unit.lastDate;
+            document.getElementById('modalTitle').innerText = 'Edit Study Unit';
+            document.querySelector('#unitForm button[type="submit"]').innerText = 'Update Unit';
+            document.getElementById('unitModal').classList.remove('hidden');
+        };
+
+        window.deleteUnit = function(id) {
+            if (confirm("Delete this unit?")) {
+                units = units.filter(u => u.id !== id);
+                saveData();
+                renderAll();
+            }
+        };
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            grid.innerHTML = '';
+            const dateObj = new Date(calendarYear, calendarMonth, 1);
+            document.getElementById('calMonthYearTitle').innerText = dateObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            const firstVisibleDate = new Date(calendarYear, calendarMonth, 1 - dateObj.getDay());
+            const todayStr = getTodayDateString();
+
+            for (let i = 0; i < 42; i++) {
+                const dayDate = new Date(firstVisibleDate);
+                dayDate.setDate(firstVisibleDate.getDate() + i);
+                const dateStr = formatDate(dayDate);
+                const dayUnits = units.filter(unit => !unit.pausedAt && formatDate(getNextReviewDate(unit.lastDate, unit.stage)) === dateStr);
+                const dayEvents = calendarEvents.filter(event => event.date === dateStr);
+                const cell = document.createElement('button');
+                cell.type = 'button';
+                cell.className = 'calendar-day';
+                if (dayDate.getMonth() !== calendarMonth) cell.classList.add('other-month');
+                if (dateStr === todayStr) cell.classList.add('today');
+                if (dateStr === calendarSelectedDate) cell.classList.add('selected');
+                cell.setAttribute('aria-label', `${dayDate.toLocaleDateString()}, ${dayUnits.length} reviews, ${dayEvents.length} events`);
+
+                const dayNumber = document.createElement('span');
+                dayNumber.className = 'calendar-day-number';
+                dayNumber.textContent = String(dayDate.getDate());
+                cell.appendChild(dayNumber);
+
+                const entries = [
+                    ...dayUnits.map(unit => ({ label: unit.title, className: 'calendar-review' })),
+                    ...dayEvents.map(event => ({ label: `${event.time ? `${event.time} ` : ''}${event.title}`, className: 'calendar-event' }))
+                ];
+                entries.slice(0, 2).forEach(entry => {
+                    const item = document.createElement('span');
+                    item.className = `calendar-entry ${entry.className}`;
+                    item.textContent = entry.label;
+                    cell.appendChild(item);
+                });
+                if (entries.length > 2) {
+                    const more = document.createElement('span');
+                    more.className = 'calendar-more';
+                    more.textContent = `+${entries.length - 2} more`;
+                    cell.appendChild(more);
+                }
+
+                cell.onclick = () => {
+                    calendarSelectedDate = dateStr;
+                    if (dayDate.getMonth() !== calendarMonth) {
+                        calendarYear = dayDate.getFullYear();
+                        calendarMonth = dayDate.getMonth();
+                    }
+                    renderCalendar();
+                };
+                grid.appendChild(cell);
+            }
+            renderCalendarAgenda();
+        }
+
+        function renderCalendarAgenda() {
+            const selectedDate = new Date(`${calendarSelectedDate}T00:00:00`);
+            document.getElementById('calendarSelectedDateTitle').innerText =
+                selectedDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+            document.getElementById('calendarEventDate').value = calendarSelectedDate;
+
+            const agenda = document.getElementById('calendarAgenda');
+            agenda.innerHTML = '';
+            const reviews = units
+                .filter(unit => !unit.pausedAt && formatDate(getNextReviewDate(unit.lastDate, unit.stage)) === calendarSelectedDate)
+                .map(unit => ({ label: unit.title, detail: `${unit.system} · Stage ${unit.stage + 1}`, type: 'Review' }));
+            const events = calendarEvents
+                .filter(event => event.date === calendarSelectedDate)
+                .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+                .map(event => ({ ...event, label: event.title, detail: event.time || 'All day', type: 'Event' }));
+
+            [...reviews, ...events].forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'calendar-agenda-item';
+                const description = document.createElement('div');
+                const title = document.createElement('strong');
+                title.textContent = item.label;
+                const detail = document.createElement('div');
+                detail.style.cssText = 'font-size:0.75rem; color:var(--muted-text); margin-top:0.2rem;';
+                detail.textContent = `${item.type} · ${item.detail}`;
+                description.append(title, detail);
+                row.appendChild(description);
+
+                if (item.type === 'Event') {
+                    const deleteButton = document.createElement('button');
+                    deleteButton.type = 'button';
+                    deleteButton.className = 'btn btn-secondary';
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.setAttribute('aria-label', `Delete event ${item.label}`);
+                    deleteButton.onclick = () => {
+                        calendarEvents = calendarEvents.filter(event => event.id !== item.id);
+                        saveData();
+                        renderCalendar();
+                    };
+                    row.appendChild(deleteButton);
+                }
+                agenda.appendChild(row);
+            });
+            if (reviews.length + events.length === 0) {
+                agenda.innerHTML = '<p style="color:var(--muted-text); font-size:0.85rem; padding:0.75rem 0;">Nothing scheduled for this day.</p>';
+            }
+        }
+
+        // Event Listeners Binding
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('formDate').value = getTodayDateString();
+
+            document.getElementById('nav-today').onclick = () => switchTab('today');
+            document.getElementById('nav-calendar').onclick = () => switchTab('calendar');
+            document.getElementById('nav-all').onclick = () => switchTab('all');
+
+            document.getElementById('btnMinHUD').onclick = () => {
+                document.getElementById('questLogHUD').classList.add('hidden');
+                document.getElementById('btnExpandHUD').classList.remove('hidden');
+            };
+            document.getElementById('btnExpandHUD').onclick = () => {
+                document.getElementById('questLogHUD').classList.remove('hidden');
+                document.getElementById('btnExpandHUD').classList.add('hidden');
+            };
+
+            document.getElementById('btnToggleTheme').onclick = () => {
+                document.body.classList.toggle('dark');
+            };
+
+            document.getElementById('btnAddUnit').onclick = () => {
+                document.getElementById('unitForm').reset();
+                document.getElementById('unitId').value = '';
+                document.getElementById('formDate').value = getTodayDateString();
+                document.getElementById('modalTitle').innerText = 'Add Study Unit';
+                document.querySelector('#unitForm button[type="submit"]').innerText = 'Save Unit';
+                document.getElementById('unitModal').classList.remove('hidden');
+            };
+            document.getElementById('btnCancelModal').onclick = () => {
+                document.getElementById('unitModal').classList.add('hidden');
+                document.getElementById('unitForm').reset();
+                document.getElementById('unitId').value = '';
+            };
+
+            document.getElementById('unitForm').onsubmit = (e) => {
+                e.preventDefault();
+                const id = document.getElementById('unitId').value;
+                const title = document.getElementById('formTitle').value.trim();
+                const system = document.getElementById('formSystem').value;
+                const date = document.getElementById('formDate').value;
+                if (id) {
+                    const unit = units.find(item => item.id === Number(id));
+                    if (!unit) return;
+                    unit.title = title;
+                    unit.system = system;
+                    unit.lastDate = date;
+                } else {
+                    units.push({ id: Date.now(), title, system, stage: 0, lastDate: date });
+                }
+                saveData();
+                renderAll();
+                document.getElementById('unitModal').classList.add('hidden');
+                document.getElementById('unitForm').reset();
+                document.getElementById('unitId').value = '';
+                document.getElementById('modalTitle').innerText = 'Add Study Unit';
+                document.querySelector('#unitForm button[type="submit"]').innerText = 'Save Unit';
+            };
+
+            document.getElementById('calendarEventForm').onsubmit = (e) => {
+                e.preventDefault();
+                const titleInput = document.getElementById('calendarEventTitle');
+                const date = document.getElementById('calendarEventDate').value;
+                if (!titleInput.value.trim() || !date) return;
+                calendarEvents.push({
+                    id: Date.now(),
+                    title: titleInput.value.trim(),
+                    date,
+                    time: document.getElementById('calendarEventTime').value
+                });
+                calendarSelectedDate = date;
+                const eventDate = new Date(`${date}T00:00:00`);
+                calendarYear = eventDate.getFullYear();
+                calendarMonth = eventDate.getMonth();
+                saveData();
+                renderCalendar();
+                titleInput.value = '';
+                document.getElementById('calendarEventTime').value = '';
+            };
+
+            document.getElementById('btnResetData').onclick = () => {
+                if (confirm("Reset data to default?")) {
+                    units = DEFAULT_UNITS.map(unit => ({ ...unit }));
+                    calendarEvents = [];
+                    dailyCompletedReviews = { date: getTodayDateString(), reviews: [] };
+                    dailyChecklist = { date: getTodayDateString(), items: [] };
+                    saveData();
+                    renderAll();
+                }
+            };
+
+            document.getElementById('btnPrevMonth').onclick = () => changeCalendarMonth(-1);
+            document.getElementById('btnNextMonth').onclick = () => changeCalendarMonth(1);
+            document.getElementById('btnCalendarToday').onclick = () => {
+                const today = new Date();
+                calendarYear = today.getFullYear();
+                calendarMonth = today.getMonth();
+                calendarSelectedDate = getTodayDateString();
+                renderCalendar();
+            };
+
+            document.getElementById('btnToggleNotif').onclick = () => {
+                document.getElementById('notifModal').classList.remove('hidden');
+            };
+            document.getElementById('btnCloseNotifModal').onclick = () => {
+                document.getElementById('notifModal').classList.add('hidden');
+            };
+
+            document.getElementById('btnGrantNotif').onclick = () => {
+                if ("Notification" in window) {
+                    Notification.requestPermission().then(p => alert("Permission: " + p));
+                }
+            };
+            document.getElementById('btnTestNotif').onclick = () => {
+                if ("Notification" in window && Notification.permission === "granted") {
+                    new Notification("🧠 USMLE Tracker", { body: "Test notification works!" });
+                } else {
+                    alert("Please grant notification permission first!");
+                }
+            };
+
+            document.getElementById('searchInput').oninput = renderMasterTable;
+
+            document.getElementById('checklistForm').onsubmit = (e) => {
+                e.preventDefault();
+                const input = document.getElementById('checklistInput');
+                const title = input.value.trim();
+                if (!title) return;
+
+                if (dailyChecklist.date !== getTodayDateString()) {
+                    dailyChecklist = { date: getTodayDateString(), items: [] };
+                }
+                dailyChecklist.items.push({ id: Date.now(), title, completed: false });
+                input.value = '';
+                saveData();
+                renderQuestHUD();
+                input.focus();
+            };
+
+            renderAll();
+        });
+    </script>
+</body>
+</html>
