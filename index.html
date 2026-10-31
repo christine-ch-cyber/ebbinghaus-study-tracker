@@ -80,6 +80,14 @@
         .quest-checklist-input::placeholder { color: #cbd5e1; }
         .quest-checklist-add { padding: 0.25rem 0.45rem; border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 0.35rem; background: rgba(30, 41, 59, 0.65); color: #f8fafc; cursor: pointer; font-size: 0.7rem; }
         .quest-checklist-remove { padding: 0 0.2rem; border: 0; background: none; color: #cbd5e1; cursor: pointer; font-size: 0.9rem; flex-shrink: 0; }
+        .quest-checklist-actions { display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
+        .quest-checklist-action { padding: 0.15rem 0.25rem; border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 0.25rem; background: rgba(30, 41, 59, 0.65); color: #f8fafc; cursor: pointer; font-size: 0.65rem; }
+        .quest-checklist-action:disabled { opacity: 0.4; cursor: default; }
+        .quest-checklist-item { cursor: grab; }
+        .quest-checklist-item:active { cursor: grabbing; }
+        .quest-checklist-item.dragging { opacity: 0.45; }
+        .quest-checklist-item.drag-over { border-color: var(--primary); }
+        .quest-checklist-edit-input { min-width: 0; flex: 1; padding: 0.3rem; font-size: 0.7rem; }
         .quest-section { display: flex; flex-direction: column; gap: 0.4rem; }
 
         .minimized-btn { position: fixed; top: 88px; right: 16px; z-index: 998; background: rgba(202, 138, 4, 0.88); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 0.75rem; border-radius: 0.75rem; font-size: 0.8rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2); backdrop-filter: blur(8px); }
@@ -201,6 +209,16 @@
                             <label for="calendarEventTime" style="font-size: 0.75rem;">Time (optional)</label>
                             <input type="time" id="calendarEventTime">
                         </div>
+                        <div>
+                            <label for="calendarEventRepeat" style="font-size: 0.75rem;">Repeat</label>
+                            <select id="calendarEventRepeat">
+                                <option value="never">Does not repeat</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="yearly">Yearly</option>
+                            </select>
+                        </div>
                         <button type="submit" class="btn">Add event</button>
                     </form>
                 </div>
@@ -238,7 +256,7 @@
         </div>
         <div class="hud-body">
             <div class="quest-list-heading">
-                <span>Today's checklist</span>
+                <span>Checklist</span>
                 <span id="hudChecklistCount" class="quest-count">0</span>
             </div>
             <form id="checklistForm" class="quest-checklist-form">
@@ -320,7 +338,9 @@
         let units = JSON.parse(localStorage.getItem('ebbinghaus_units')) || DEFAULT_UNITS.map(unit => ({ ...unit }));
         let calendarEvents = JSON.parse(localStorage.getItem('ebbinghaus_calendar_events')) || [];
         let dailyCompletedReviews = JSON.parse(localStorage.getItem('ebbinghaus_completed_reviews')) || { date: getTodayDateString(), reviews: [] };
-        let dailyChecklist = JSON.parse(localStorage.getItem('ebbinghaus_daily_checklist')) || { date: getTodayDateString(), items: [] };
+        let dailyChecklist = JSON.parse(localStorage.getItem('ebbinghaus_daily_checklist')) || { items: [] };
+        if (!Array.isArray(dailyChecklist.items)) dailyChecklist.items = [];
+        let editingChecklistItemId = null;
         let calendarYear = new Date().getFullYear();
         let calendarMonth = new Date().getMonth();
         let calendarSelectedDate = getTodayDateString();
@@ -350,6 +370,22 @@
             const date = new Date(year, month - 1, day);
             date.setDate(date.getDate() + days);
             return formatDate(date);
+        }
+
+        function eventOccursOnDate(event, dateStr) {
+            if (dateStr < event.date) return false;
+            const repeat = event.repeat || 'never';
+            if (repeat === 'daily') return true;
+            if (repeat === 'weekly') {
+                return new Date(`${dateStr}T00:00:00`).getDay() === new Date(`${event.date}T00:00:00`).getDay();
+            }
+            if (repeat === 'monthly') return dateStr.slice(-2) === event.date.slice(-2);
+            if (repeat === 'yearly') return dateStr.slice(5) === event.date.slice(5);
+            return dateStr === event.date;
+        }
+
+        function getRepeatLabel(repeat) {
+            return ({ daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' })[repeat] || '';
         }
 
         function changeCalendarMonth(offset) {
@@ -472,10 +508,6 @@
                 dailyCompletedReviews = { date: todayStr, reviews: [] };
                 saveData();
             }
-            if (dailyChecklist.date !== todayStr) {
-                dailyChecklist = { date: todayStr, items: [] };
-                saveData();
-            }
             const completedIds = new Set(dailyCompletedReviews.reviews.map(review => String(review.id)));
             const checklist = document.getElementById('hudChecklist');
             const mainList = document.getElementById('hudMainList');
@@ -484,20 +516,98 @@
             mainList.innerHTML = '';
             completedList.innerHTML = '';
 
-            dailyChecklist.items.forEach(item => {
+            dailyChecklist.items.filter(item => !item.completed).forEach(item => {
                 const row = document.createElement('div');
-                row.className = `quest-item${item.completed ? ' completed' : ''}`;
-                const title = document.createElement('div');
-                title.className = 'quest-task-title';
-                title.textContent = item.title;
+                const isEditing = String(editingChecklistItemId) === String(item.id);
+                row.className = 'quest-item quest-checklist-item';
+                row.draggable = !isEditing;
+                row.ondragstart = event => {
+                    if (event.target.closest('button, input')) {
+                        event.preventDefault();
+                        return;
+                    }
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', String(item.id));
+                    row.classList.add('dragging');
+                };
+                row.ondragend = () => {
+                    row.classList.remove('dragging');
+                    checklist.querySelectorAll('.drag-over').forEach(element => element.classList.remove('drag-over'));
+                };
+                row.ondragover = event => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                    row.classList.add('drag-over');
+                };
+                row.ondragleave = event => {
+                    if (!row.contains(event.relatedTarget)) row.classList.remove('drag-over');
+                };
+                row.ondrop = event => {
+                    event.preventDefault();
+                    row.classList.remove('drag-over');
+                    const draggedId = event.dataTransfer.getData('text/plain');
+                    const targetIndex = dailyChecklist.items.findIndex(checklistItem => String(checklistItem.id) === String(item.id));
+                    const draggedIndex = dailyChecklist.items.findIndex(checklistItem => String(checklistItem.id) === draggedId);
+                    if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) return;
+                    const insertAfter = event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
+                    let insertIndex = targetIndex + (insertAfter ? 1 : 0);
+                    const [draggedItem] = dailyChecklist.items.splice(draggedIndex, 1);
+                    if (draggedIndex < insertIndex) insertIndex--;
+                    dailyChecklist.items.splice(insertIndex, 0, draggedItem);
+                    saveData();
+                    renderQuestHUD();
+                };
+                const title = document.createElement(isEditing ? 'input' : 'div');
+                title.className = isEditing ? 'quest-checklist-edit-input' : 'quest-task-title';
+                if (isEditing) {
+                    title.value = item.title;
+                    title.maxLength = 100;
+                    title.setAttribute('aria-label', `Edit checklist item ${item.title}`);
+                } else {
+                    title.textContent = item.title;
+                }
                 const toggle = document.createElement('input');
                 toggle.type = 'checkbox';
                 toggle.className = 'quest-completion-toggle';
-                toggle.checked = item.completed;
-                toggle.setAttribute('aria-label', `${item.completed ? 'Mark incomplete' : 'Complete'} checklist item ${item.title}`);
+                toggle.checked = false;
+                toggle.setAttribute('aria-label', `Complete checklist item ${item.title}`);
                 toggle.onchange = () => {
                     item.completed = toggle.checked;
                     saveData();
+                    renderQuestHUD();
+                };
+                const actions = document.createElement('div');
+                actions.className = 'quest-checklist-actions';
+                const edit = document.createElement('button');
+                edit.type = 'button';
+                edit.className = 'quest-checklist-action';
+                edit.textContent = isEditing ? 'Save' : '✎';
+                edit.setAttribute('aria-label', `${isEditing ? 'Save' : 'Edit'} checklist item ${item.title}`);
+                if (!isEditing) edit.title = 'Edit checklist item';
+                edit.onclick = () => {
+                    if (isEditing) {
+                        const updatedTitle = title.value.trim();
+                        if (!updatedTitle) {
+                            alert('Checklist items cannot be empty.');
+                            title.focus();
+                            return;
+                        }
+                        item.title = updatedTitle;
+                        editingChecklistItemId = null;
+                        saveData();
+                        renderQuestHUD();
+                    } else {
+                        editChecklistItem(item.id);
+                    }
+                };
+                const cancelEdit = document.createElement('button');
+                cancelEdit.type = 'button';
+                cancelEdit.className = 'quest-checklist-action';
+                cancelEdit.textContent = 'Cancel';
+                cancelEdit.setAttribute('aria-label', `Cancel editing checklist item ${item.title}`);
+                cancelEdit.classList.toggle('hidden', !isEditing);
+                cancelEdit.onclick = () => {
+                    editingChecklistItemId = null;
                     renderQuestHUD();
                 };
                 const remove = document.createElement('button');
@@ -510,13 +620,18 @@
                     saveData();
                     renderQuestHUD();
                 };
-                row.append(title, toggle, remove);
+                actions.append(toggle, edit, cancelEdit, remove);
+                row.append(title, actions);
                 checklist.appendChild(row);
+                if (isEditing) title.focus();
             });
             document.getElementById('hudChecklistCount').innerText =
                 String(dailyChecklist.items.filter(item => !item.completed).length);
-            if (dailyChecklist.items.length === 0) {
-                checklist.innerHTML = '<div style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding:0.35rem 0;">No checklist items yet.</div>';
+            if (dailyChecklist.items.every(item => item.completed)) {
+                const emptyMessage = dailyChecklist.items.length === 0
+                    ? 'No checklist items yet.'
+                    : 'All checklist items completed.';
+                checklist.innerHTML = `<div style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding:0.35rem 0;">${emptyMessage}</div>`;
             }
 
             let count = 0;
@@ -563,12 +678,39 @@
                 completedList.appendChild(item);
             });
 
+            dailyChecklist.items.filter(item => item.completed).forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'quest-item completed';
+                const title = document.createElement('div');
+                title.className = 'quest-task-title';
+                title.textContent = item.title;
+                const toggle = document.createElement('input');
+                toggle.type = 'checkbox';
+                toggle.className = 'quest-completion-toggle';
+                toggle.checked = true;
+                toggle.setAttribute('aria-label', `Return checklist item ${item.title} to the queue`);
+                toggle.onchange = () => {
+                    item.completed = false;
+                    saveData();
+                    renderQuestHUD();
+                };
+                row.append(title, toggle);
+                completedList.appendChild(row);
+            });
+
             document.getElementById('hudTaskCount').innerText = count;
-            document.getElementById('hudCompletedCount').innerText = dailyCompletedReviews.reviews.length;
+            const completedCount = dailyCompletedReviews.reviews.length + dailyChecklist.items.filter(item => item.completed).length;
+            document.getElementById('hudCompletedCount').innerText = completedCount;
             if (count === 0) mainList.innerHTML = `<div style="font-size:0.75rem; color:#cbd5e1; text-align:center; padding:0.5rem 0;">All caught up!</div>`;
-            if (dailyCompletedReviews.reviews.length === 0) {
+            if (completedCount === 0) {
                 completedList.innerHTML = '<div style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding:0.35rem 0;">No completed tasks yet.</div>';
             }
+        }
+
+        function editChecklistItem(id) {
+            if (!dailyChecklist.items.some(item => String(item.id) === String(id))) return;
+            editingChecklistItemId = id;
+            renderQuestHUD();
         }
 
         function renderMasterTable() {
@@ -652,7 +794,7 @@
                 dayDate.setDate(firstVisibleDate.getDate() + i);
                 const dateStr = formatDate(dayDate);
                 const dayUnits = units.filter(unit => !unit.pausedAt && formatDate(getNextReviewDate(unit.lastDate, unit.stage)) === dateStr);
-                const dayEvents = calendarEvents.filter(event => event.date === dateStr);
+                const dayEvents = calendarEvents.filter(event => eventOccursOnDate(event, dateStr));
                 const cell = document.createElement('button');
                 cell.type = 'button';
                 cell.className = 'calendar-day';
@@ -708,9 +850,14 @@
                 .filter(unit => !unit.pausedAt && formatDate(getNextReviewDate(unit.lastDate, unit.stage)) === calendarSelectedDate)
                 .map(unit => ({ label: unit.title, detail: `${unit.system} · Stage ${unit.stage + 1}`, type: 'Review' }));
             const events = calendarEvents
-                .filter(event => event.date === calendarSelectedDate)
+                .filter(event => eventOccursOnDate(event, calendarSelectedDate))
                 .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
-                .map(event => ({ ...event, label: event.title, detail: event.time || 'All day', type: 'Event' }));
+                .map(event => ({
+                    ...event,
+                    label: event.title,
+                    detail: [event.time || 'All day', getRepeatLabel(event.repeat)].filter(Boolean).join(' · '),
+                    type: 'Event'
+                }));
 
             [...reviews, ...events].forEach(item => {
                 const row = document.createElement('div');
@@ -812,7 +959,8 @@
                     id: Date.now(),
                     title: titleInput.value.trim(),
                     date,
-                    time: document.getElementById('calendarEventTime').value
+                    time: document.getElementById('calendarEventTime').value,
+                    repeat: document.getElementById('calendarEventRepeat').value
                 });
                 calendarSelectedDate = date;
                 const eventDate = new Date(`${date}T00:00:00`);
@@ -822,6 +970,7 @@
                 renderCalendar();
                 titleInput.value = '';
                 document.getElementById('calendarEventTime').value = '';
+                document.getElementById('calendarEventRepeat').value = 'never';
             };
 
             document.getElementById('btnResetData').onclick = () => {
@@ -829,7 +978,7 @@
                     units = DEFAULT_UNITS.map(unit => ({ ...unit }));
                     calendarEvents = [];
                     dailyCompletedReviews = { date: getTodayDateString(), reviews: [] };
-                    dailyChecklist = { date: getTodayDateString(), items: [] };
+                    dailyChecklist = { items: [] };
                     saveData();
                     renderAll();
                 }
@@ -873,9 +1022,6 @@
                 const title = input.value.trim();
                 if (!title) return;
 
-                if (dailyChecklist.date !== getTodayDateString()) {
-                    dailyChecklist = { date: getTodayDateString(), items: [] };
-                }
                 dailyChecklist.items.push({ id: Date.now(), title, completed: false });
                 input.value = '';
                 saveData();
