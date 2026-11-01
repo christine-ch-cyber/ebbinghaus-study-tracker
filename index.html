@@ -347,74 +347,118 @@
         let calendarMonth = new Date().getMonth();
         let calendarSelectedDate = getTodayDateString();
 
-        // ☁️ cloud sync functions
-        async function syncToCloud() {
-            // automatically check if localStorage has a key, if not, generate a unique key
-            let cloudKey = localStorage.getItem('usmle_cloud_key');
-            if (!cloudKey) {
-                // automatically generate a unique key 
-                cloudKey = 'usmle_' + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
-                localStorage.setItem('usmle_cloud_key', cloudKey);
-            } 
-           if (!cloudKey) return;
-            localStorage.setItem('usmle_cloud_key', cloudKey);
+// 🐙 GitHub Gist 自動同步核心邏輯
+async function getGistCredentials() {
+    let token = localStorage.getItem('usmle_github_token');
+    let gistId = localStorage.getItem('usmle_gist_id');
 
-            // collect localStorage data
-            const payload = {
-                units: JSON.parse(localStorage.getItem('ebbinghaus_units') || '[]'),
-                userXP: parseInt(localStorage.getItem('ebbinghaus_xp') || '0'),
-                userLevel: parseInt(localStorage.getItem('ebbinghaus_level') || '1'),
-                userStreak: parseInt(localStorage.getItem('ebbinghaus_streak') || '5')
-                // 💡 put here if want to change anything on localStorage 
-            };
+    if (!token) {
+        token = prompt("Please enter your GitHub Personal Access Token (ghp_...):");
+        if (!token) return null;
+        localStorage.setItem('usmle_github_token', token.trim());
+    }
+    return { token: token.trim(), gistId: gistId ? gistId.trim() : null };
+}
 
-            try {
-                const syncBtn = document.getElementById('btnSyncCloud');
-                if(syncBtn) syncBtn.innerText = "⏳ Syncing...";
-                
-                const res = await fetch(`https://json.geshi.org/api/v1/store/${cloudKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                
-                if(res.ok) {
-                    alert("☁️ Cloud sync successful!");
-                } else {
-                    throw new Error("Sync failed");
-                }
-            } catch (e) {
-                // if sync fails, fallback to copying the data to clipboard
-                const exportStr = JSON.stringify(payload);
-                navigator.clipboard?.writeText(exportStr);
-                prompt("Copy the following text to another device (or manually copy the text below to another device):", exportStr);
-            } finally {
-                const syncBtn = document.getElementById('btnSyncCloud');
-                if(syncBtn) syncBtn.innerText = "☁️ Cloud Sync";
+    async function syncToCloud() {
+        const creds = await getGistCredentials();
+        if (!creds) return;
+
+        const payload = {
+            units: JSON.parse(localStorage.getItem('ebbinghaus_units') || '[]'),
+            userXP: parseInt(localStorage.getItem('ebbinghaus_xp') || '0'),
+            userLevel: parseInt(localStorage.getItem('ebbinghaus_level') || '1'),
+            userStreak: parseInt(localStorage.getItem('ebbinghaus_streak') || '5')
+        };
+
+        const files = {
+            "usmle-ebbinghaus-sync.json": {
+                content: JSON.stringify(payload, null, 2)
             }
-        }
+        };
 
-        async function loadFromCloud() {
-            const cloudKey = localStorage.getItem('usmle_cloud_key');
-            if (!cloudKey) return;
-            try {
-                const res = await fetch(`https://json.geshi.org/api/v1/store/${cloudKey}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && data.units) {
-                        // Get the cloud data and updatelocalStorage
-                        localStorage.setItem('ebbinghaus_units', JSON.stringify(data.units));
-                        localStorage.setItem('ebbinghaus_xp', data.userXP);
-                        localStorage.setItem('ebbinghaus_level', data.userLevel);
-                        localStorage.setItem('ebbinghaus_streak', data.userStreak);
+        try {
+            const syncBtn = document.getElementById('btnSyncCloud');
+            if(syncBtn) syncBtn.innerText = "⏳ uploading...";
+
+            let url = 'https://api.github.com/gists';
+            let method = 'POST';
+
+            // if already has Gist ID，use PATCH to update existing Gist
+            if (creds.gistId) {
+                url = `https://api.github.com/gists/${creds.gistId}`;
+                method = 'PATCH';
+            }
+
+            const res = await fetch(url, {
+                method: method,
+                headers: {
+                    'Authorization': `token ${creds.token}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    description: "USMLE Ebbinghaus Sync Data",
+                    public: false, // set to private (secret Gist, others won't be able to see it)
+                    files: files
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                if (!creds.gistId) {
+                    // if established，note down Gist ID
+                    localStorage.setItem('usmle_gist_id', data.id);
+                }
+                alert("☁️ GitHub Gist cloud sync successful!");
+            } else {
+                const errData = await res.json();
+                throw new Error(errData.message || "Gist sync failed");
+            }
+        } catch (e) {
+            alert("Sync failed：" + e.message + "\nPlease check if your Token is correct or expired.");
+            // if Token has issues, clear and reset
+            if(confirm("Do you want to clear the old Token and re-enter?")) {
+                localStorage.removeItem('usmle_github_token');
+                localStorage.removeItem('usmle_gist_id');
+            }
+        } finally {
+            const syncBtn = document.getElementById('btnSyncCloud');
+            if(syncBtn) syncBtn.innerText = "☁️ Sync";
+        }
+    }
+
+    async function loadFromCloud() {
+        const creds = await getGistCredentials();
+        if (!creds || !creds.gistId) return; // if no Gist ID means no previous sync, skip
+
+        try {
+            const res = await fetch(`https://api.github.com/gists/${creds.gistId}`, {
+                headers: {
+                    'Authorization': `token ${creds.token}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                const file = data.files["usmle-ebbinghaus-sync.json"];
+                if (file && file.content) {
+                    const parsed = JSON.parse(file.content);
+                    if (parsed && parsed.units) {
+                        localStorage.setItem('ebbinghaus_units', JSON.stringify(parsed.units));
+                        localStorage.setItem('ebbinghaus_xp', parsed.userXP);
+                        localStorage.setItem('ebbinghaus_level', parsed.userLevel);
+                        localStorage.setItem('ebbinghaus_streak', parsed.userStreak);
                         
-                        // refresh or reload render function
                         if (typeof renderAll === 'function') renderAll();
                         else location.reload();
+                        console.log("☁️ Successfully loaded from GitHub Gist!");
                     }
                 }
-            } catch (e) { console.log("Cloud load skipped"); }
-        }
+            }
+        } catch (e) { console.log("Gist load skipped:", e); }
+    }
 
         function getNextReviewDate(lastDateStr, stage) {
             const [year, month, day] = lastDateStr.split('-').map(Number);
