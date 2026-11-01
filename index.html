@@ -349,8 +349,14 @@
 
         // ☁️ cloud sync functions
         async function syncToCloud() {
-            const cloudKey = localStorage.getItem('usmle_cloud_key') || prompt("Please enter your cloud sync password (first-time users please create a password, enter the same password on your phone and laptop to sync):", "usmle_study_20261101_df3k");
-            if (!cloudKey) return;
+            // automatically check if localStorage has a key, if not, generate a unique key
+            let cloudKey = localStorage.getItem('usmle_cloud_key');
+            if (!cloudKey) {
+                // automatically generate a unique key 
+                cloudKey = 'usmle_' + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
+                localStorage.setItem('usmle_cloud_key', cloudKey);
+            } 
+           if (!cloudKey) return;
             localStorage.setItem('usmle_cloud_key', cloudKey);
 
             // collect localStorage data
