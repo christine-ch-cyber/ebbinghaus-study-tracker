@@ -137,6 +137,7 @@
                 <button id="nav-calendar">Calendar</button>
                 <button id="nav-all">Master Database</button>
             </nav>
+            <button id="btnSyncCloud" class="btn btn-success" title="Sync">☁️ Sync</button>
             <button id="btnToggleNotif" class="btn btn-secondary">🔔 Alerts</button>
             <button id="btnToggleTheme" class="btn btn-secondary">🌓 Mode</button>
         </div>
@@ -325,6 +326,7 @@
             <button id="btnCloseNotifModal" class="btn btn-secondary" style="margin-top: 0.5rem;">Close</button>
         </div>
     </div>
+    
 
     <!-- JavaScript Application Logic -->
     <script>
@@ -344,6 +346,69 @@
         let calendarYear = new Date().getFullYear();
         let calendarMonth = new Date().getMonth();
         let calendarSelectedDate = getTodayDateString();
+
+        // ☁️ cloud sync functions
+        async function syncToCloud() {
+            const cloudKey = localStorage.getItem('usmle_cloud_key') || prompt("Please enter your cloud sync password (first-time users please create a password, enter the same password on your phone and laptop to sync):", "usmle_study_20261101_df3k");
+            if (!cloudKey) return;
+            localStorage.setItem('usmle_cloud_key', cloudKey);
+
+            // collect localStorage data
+            const payload = {
+                units: JSON.parse(localStorage.getItem('ebbinghaus_units') || '[]'),
+                userXP: parseInt(localStorage.getItem('ebbinghaus_xp') || '0'),
+                userLevel: parseInt(localStorage.getItem('ebbinghaus_level') || '1'),
+                userStreak: parseInt(localStorage.getItem('ebbinghaus_streak') || '5')
+                // 💡 put here if want to change anything on localStorage 
+            };
+
+            try {
+                const syncBtn = document.getElementById('btnSyncCloud');
+                if(syncBtn) syncBtn.innerText = "⏳ Syncing...";
+                
+                const res = await fetch(`https://json.geshi.org/api/v1/store/${cloudKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if(res.ok) {
+                    alert("☁️ Cloud sync successful!");
+                } else {
+                    throw new Error("Sync failed");
+                }
+            } catch (e) {
+                // if sync fails, fallback to copying the data to clipboard
+                const exportStr = JSON.stringify(payload);
+                navigator.clipboard?.writeText(exportStr);
+                prompt("Copy the following text to another device (or manually copy the text below to another device):", exportStr);
+            } finally {
+                const syncBtn = document.getElementById('btnSyncCloud');
+                if(syncBtn) syncBtn.innerText = "☁️ Cloud Sync";
+            }
+        }
+
+        async function loadFromCloud() {
+            const cloudKey = localStorage.getItem('usmle_cloud_key');
+            if (!cloudKey) return;
+            try {
+                const res = await fetch(`https://json.geshi.org/api/v1/store/${cloudKey}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.units) {
+                        // Get the cloud data and updatelocalStorage
+                        localStorage.setItem('ebbinghaus_units', JSON.stringify(data.units));
+                        localStorage.setItem('ebbinghaus_xp', data.userXP);
+                        localStorage.setItem('ebbinghaus_level', data.userLevel);
+                        localStorage.setItem('ebbinghaus_streak', data.userStreak);
+                        
+                        // refresh or reload render function
+                        if (typeof renderAll === 'function') renderAll();
+                        else location.reload();
+                    }
+                }
+            } catch (e) { console.log("Cloud load skipped"); }
+        }
 
         function getNextReviewDate(lastDateStr, stage) {
             const [year, month, day] = lastDateStr.split('-').map(Number);
@@ -1028,6 +1093,9 @@
                 renderQuestHUD();
                 input.focus();
             };
+
+            document.getElementById('btnSyncCloud').onclick = syncToCloud;
+            loadFromCloud();
 
             renderAll();
         });
